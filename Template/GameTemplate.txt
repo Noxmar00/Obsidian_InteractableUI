@@ -1,0 +1,44 @@
+---
+tags: Game
+title: "{{VALUE:title}}"
+genres: {{VALUE:genres}}
+platforms: {{VALUE:platforms}}
+year: {{VALUE:year}}
+released: {{VALUE:released}}
+developers: {{VALUE:developers}}
+publishers: {{VALUE:publishers}}
+rating: {{VALUE:rating}}
+metacritic: {{VALUE:metacritic}}
+my_rating: 0 
+played: false
+playing: false
+dropped: false
+sandbox: false 
+favorite: false
+url: "{{VALUE:url}}"
+coverUrl: "{{VALUE:coverUrl}}"
+gameSeries: ""
+plot: "{{VALUE:plot}}"
+---
+
+![cover|150]({{VALUE:coverUrl}})
+
+# {{VALUE:title}}
+
+**Anno**: {{VALUE:year}}  
+**Data uscita**: {{VALUE:released}}  
+**Valutazione**: {{VALUE:rating}}  
+**Metacritic**: {{VALUE:metacritic}}    
+
+## Informazioni
+- **Sviluppatore**: {{VALUE:developers}}  
+- **Editore**: {{VALUE:publishers}}  
+- **Generi**: {{VALUE:genres}}  
+- **Piattaforme**: {{VALUE:platforms}}  
+
+## Trama
+{{VALUE:plot}}  
+
+[🔗 Vedi su IGDB]({{VALUE:url}})
+
+## Le mie note
