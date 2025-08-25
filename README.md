@@ -49,3 +49,9 @@ In my mind i wanted to do an automated system.
 Cool thing about the tv series search is that it now automatically generate the list of episodes and a checkbox so you can keep track
 ![Episodes](Images/immagine_2025-08-25_125013162.png)   
 
+# Ending
+
+This will not be easy to install but you have almost all the work done. The majority of things is in Italian so you have to translate in the language you want.
+You also will find some tags like watchlist or physical (the physical book is in my library)
+
+Inspired by https://www.reddit.com/r/ObsidianMD/comments/1lc8as2/anime_games_library_in_obsidian
