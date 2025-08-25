@@ -1,0 +1,53 @@
+---
+tags: Media, {{VALUE:typeTag}}
+title: "{{VALUE:title}}"
+year: {{VALUE:year}}
+released: "{{VALUE:released}}"
+runtime: "{{VALUE:runtime}}"
+genres: {{VALUE:genres}}
+director: {{VALUE:directorFrontmatter}}
+writer: {{VALUE:writerFrontmatter}}
+actors: {{VALUE:actorsFrontmatter}}
+language: "{{VALUE:language}}"
+country: "{{VALUE:country}}"
+awards: "{{VALUE:awards}}"
+imdbRating: "{{VALUE:imdbRating}}"
+imdbID: "{{VALUE:imdbID}}"
+posterUrl: "{{VALUE:posterUrl}}"
+plot: "{{VALUE:plotFrontmatter}}"
+totalSeasons: {{VALUE:totalSeasons}}
+my_rating: 0
+watched: false
+watching: false 
+dropped: false
+favorite: false
+hiatus: false
+watchlist: false
+---
+
+![poster|150]({{VALUE:posterUrl}})
+
+# {{VALUE:title}}
+
+**Anno**: {{VALUE:year}}
+**Rilasciato**: {{VALUE:released}}
+**Durata**: {{VALUE:runtime}}
+**Rating IMDb**: {{VALUE:imdbRating}}/10
+
+## Informazioni
+- **Regista/i**: {{VALUE:directorDisplay}}
+- **Scrittore/i**: {{VALUE:writerDisplay}}
+- **Attori**: {{VALUE:actorsDisplay}}
+- **Generi**: {{VALUE:genresDisplay}}
+- **Lingua**: {{VALUE:language}}
+- **Paese**: {{VALUE:country}}
+- **Premi**: {{VALUE:awards}}
+
+## Trama
+{{VALUE:plotBody}}
+
+[🔗 Vedi su IMDb](https://www.imdb.com/title/{{VALUE:imdbID}}/)
+
+{{VALUE:seasonsSection}}
+
+## Le Mie Note
