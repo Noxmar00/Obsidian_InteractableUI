@@ -4,5 +4,5 @@ An interactable UI for Obsidian using DataviewJS. This was made using AI for cod
 
 # Images
 
-[logo]: https://imgur.com/a/cDRlUBw "Test"
+![Imgur Image](https://imgur.com/a/cDRlUBw) 
 
