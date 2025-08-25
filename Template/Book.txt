@@ -1,0 +1,39 @@
+---
+tags: Book
+title: "{{VALUE:title}}"
+authors: {{VALUE:authors}}
+publisher: "{{VALUE:publisher}}"
+publishedDate: "{{VALUE:publishedDate}}"
+publishedYear: {{VALUE:publishedYear}}
+pageCount: {{VALUE:pageCount}}
+categories: {{VALUE:categories}}
+description: "{{VALUE:description}}"
+coverUrl: "{{VALUE:coverUrl}}"
+infoLink: "{{VALUE:infoLink}}"
+bookSeries: ""
+my_rating: 0
+read: false
+reading: false
+dropped: false
+physicalCopy: false
+favorite: false
+---
+
+![cover|150]({{VALUE:coverUrl}})
+
+# {{VALUE:title}}
+*di {{VALUE:authorsDisplay}}*
+
+**Anno**: {{VALUE:publishedYear}}  
+**Pagine**: {{VALUE:pageCount}}  
+
+## Informazioni
+- **Editore**: {{VALUE:publisher}}
+- **Categorie**: {{VALUE:categories}}
+
+## Descrizione
+{{VALUE:description}}
+
+[🔗 Vedi su Google Books]({{VALUE:infoLink}})
+
+## Note
