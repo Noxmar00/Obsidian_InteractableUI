@@ -1,0 +1,969 @@
+```dataviewjs
+const pages = dv.pages('"04 - Videogames/Giochi"');
+// Definizioni SVG per le icone del menu contestuale
+const ICON_SVG_INFO = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" class="menu-icon-svg"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" /></svg>`;
+const ICON_SVG_IGDB_LINK = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="menu-icon-svg"><path d="M12 2C6.486 2 2 6.486 2 12s4.486 10 10 10 10-4.486 10-10S17.514 2 12 2zm0 18c-4.411 0-8-3.589-8-8s3.589-8 8-8 8 3.589 8 8-3.589 8-8 8z"/><path d="M11 11h2v6h-2zm0-4h2v2h-2z"/></svg>`;
+
+
+let currentPages = pages;
+let sortField = "name";
+let sortOrder = "asc";
+let filterStatus = "Tutti";
+let filterFavorite = false;
+let searchTerm = "";
+let viewMode = "grid";
+let activeSingleGame = null;
+let isShowingSingleGameView = false;
+let isTooltipDisabled = false;
+
+let activeContextMenu = null;
+let activeStatusSubMenu = null;
+let activeRatingSubMenu = null;
+let statusSubMenuTimeout = null;
+let ratingSubMenuTimeout = null;
+let activeTooltip = null;
+let tooltipShowTimeout = null;
+let tooltipHideTimeout = null;
+const TOOLTIP_SHOW_DELAY = 200;
+const TOOLTIP_TRANSITION_DURATION = 150;
+
+function createElement(type, options) { return dv.container.createEl(type, options); }
+
+function getImageUrl(coverUrl) {
+    if (typeof coverUrl === 'string' && (coverUrl.startsWith('http://') || coverUrl.startsWith('https://'))) return coverUrl;
+    return '';
+}
+
+function formatArray(arr) {
+    if (!arr || arr.length === 0) return 'N/D';
+    if (typeof arr === 'string') return arr;
+    return arr.join(', ');
+}
+
+function getRatingValue(myRating) {
+    const numericRating = Number(myRating);
+    return !isNaN(numericRating) && numericRating >= 0 && numericRating <= 5 ? numericRating : 0;
+}
+
+function createParticleVortex(element, onCompleteCallback) {
+    const rect = element.getBoundingClientRect();
+    const container = document.body.createEl("div", { cls: "vortex-container" });
+    const particleCount = 30;
+    const animationDuration = 600;
+    for (let i = 0; i < particleCount; i++) {
+        const particle = container.createEl("div", { cls: "vortex-particle" });
+        const size = Math.random() * 8 + 4;
+        const angle = Math.random() * 360;
+        const radius = Math.random() * 150 + 50;
+        const finalX = Math.cos(angle * (Math.PI / 180)) * radius;
+        const finalY = Math.sin(angle * (Math.PI / 180)) * radius;
+        Object.assign(particle.style, {
+            width: `${size}px`, height: `${size}px`, backgroundColor: 'var(--accent-color-game)', borderRadius: '50%',
+            left: `${rect.left + rect.width / 2 - size / 2}px`, top: `${rect.top + rect.height / 2 - size / 2}px`,
+            opacity: 1, transition: `transform ${animationDuration}ms cubic-bezier(0.17, 0.84, 0.44, 1), opacity ${animationDuration}ms ease-out`
+        });
+        requestAnimationFrame(() => { particle.style.transform = `translate(${finalX}px, ${finalY}px) scale(0)`; particle.style.opacity = 0; });
+    }
+    setTimeout(() => { container.remove(); if (typeof onCompleteCallback === 'function') { onCompleteCallback(); } }, animationDuration);
+}
+
+const statusMap = {
+    played: { i: `<svg fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>`, t: 'Completato', c: 'played', key: 'played' },
+    playing: { i: `<svg fill="currentColor" viewBox="0 0 20 20"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z"/></svg>`, t: 'Giocando', c: 'playing', key: 'playing' },
+    dropped: { i: `<svg fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>`, t: 'Abbandonato', c: 'dropped', key: 'dropped' },
+    sandbox: { i: `<svg fill="currentColor" viewBox="0 0 20 20"><path d="M10 2a6 6 0 00-6 6v3.586l-1.707 1.707A1 1 0 003 14v2a1 1 0 001 1h12a1 1 0 001-1v-2a1 1 0 00-.293-.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z"/></svg>`, t: 'Sandbox', c: 'sandbox', key: 'sandbox' },
+    default: { i: `<svg fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clip-rule="evenodd"/></svg>`, t: 'Non Iniziato', c: '', key: 'default' }
+};
+
+const getStatusInfo = (p) => {
+    const exclusiveStatusKeys = ["played", "playing", "dropped"];
+    const activeStatusKey = exclusiveStatusKeys.find(key => p[key] === true);
+    return activeStatusKey ? statusMap[activeStatusKey] : statusMap.default;
+};
+
+const FA_STAR_SVG_PATH = "M259.3 17.8L194 150.3 47.9 171.5c-26.2 3.8-36.7 36.1-17.7 54.6l105.7 103-25 145.5c-4.5 26.3 23.2 46 46.4 33.7L288 439.6l130.7 68.7c23.2 12.2 50.9-7.4 46.4-33.7l-25-145.5 105.7-103c19-18.5 8.5-50.8-17.7-54.6L382 150.3 316.7 17.8c-11.7-23.6-45.6-23.6-57.3 0z";
+const FA_HEART_SOLID_PATH = "M47.6 300.4L228.3 469.1c7.5 7 17.4 10.9 27.7 10.9s20.2-3.9 27.7-10.9L464.4 300.4c30.4-28.3 47.6-68 47.6-109.5v-5.8c0-69.9-50.5-129.5-119.4-141C347 36.5 300.6 51.4 268 84L256 96 244 84c-32.6-32.6-79-47.5-124.6-39.9C50.5 55.6 0 115.2 0 185.1v5.8c0 41.5 17.2 81.2 47.6 109.5z";
+const FA_HEART_REGULAR_PATH = "M244 84L255.1 96L267.1 84.02C300.6 51.37 347 36.51 392.6 44.1C461.5 55.58 512 115.2 512 185.1V190.9C512 232.4 494.8 272.1 464.4 300.4L283.7 469.1C276.2 476.1 266.3 480 256 480C245.7 480 235.8 476.1 228.3 469.1L47.59 300.4C17.23 272.1 0 232.4 0 190.9V185.1C0 115.2 50.52 55.58 119.4 44.1C164.1 36.51 211.4 51.37 244 84zM0 190.9V185.1C0 115.2 50.52 55.58 119.4 44.1C164.1 36.51 211.4 51.37 244 84L255.1 96L267.1 84.02C300.6 51.37 347 36.51 392.6 44.1C461.5 55.58 512 115.2 512 185.1V190.9C512 232.4 494.8 272.1 464.4 300.4L283.7 469.1C268.2 484.6 243.8 484.6 228.3 469.1L47.59 300.4C17.23 272.1 0 232.4 0 190.9z";
+
+function renderMyStars(myRating, forMenu = false) {
+    const value = getRatingValue(myRating);
+    if (value === 0 && forMenu) return "Nessun voto";
+    if (value === 0 && !forMenu) return '';
+    const fullStars = Math.floor(value);
+    const hasHalfStar = value % 1 !== 0;
+    const emptyStars = 5 - fullStars - (hasHalfStar ? 1 : 0);
+    let starsHtml = '';
+    const starClass = forMenu ? "menu-star-svg" : "my-star-svg";
+    const halfStarContainerClass = forMenu ? "menu-half-star-container" : "half-star-svg-container";
+    for (let i = 0; i < fullStars; i++) starsHtml += `<svg class="${starClass}" viewBox="0 0 576 512"><path d="${FA_STAR_SVG_PATH}" fill="var(--star-color-filled)"></path></svg>`;
+    if (hasHalfStar) starsHtml += `<span class="${halfStarContainerClass}"><svg class="${starClass} half-star-filled-svg" viewBox="0 0 576 512"><path d="${FA_STAR_SVG_PATH}" fill="var(--star-color-filled)"></path></svg><svg class="${starClass} half-star-empty-svg" viewBox="0 0 576 512"><path d="${FA_STAR_SVG_PATH}" fill="none" stroke="var(--star-color-empty)" stroke-width="30"></path></svg></span>`;
+    for (let i = 0; i < emptyStars; i++) starsHtml += `<svg class="${starClass}" viewBox="0 0 576 512"><path d="${FA_STAR_SVG_PATH}" fill="none" stroke="var(--star-color-empty)" stroke-width="30"></path></svg>`;
+    const wrapperClass = forMenu ? "menu-rating-stars" : "my-rating-stars";
+    return `<span class="${wrapperClass}">${starsHtml}</span>`;
+}
+
+function initializeTooltip() {
+    let tooltipEl = document.querySelector('.dynamic-game-tooltip');
+    if (!tooltipEl) {
+        tooltipEl = document.createElement('div');
+        tooltipEl.className = 'dynamic-game-tooltip';
+        Object.assign(tooltipEl.style, { position: 'absolute', pointerEvents: 'none', zIndex: '99999' });
+        document.body.appendChild(tooltipEl);
+    }
+    activeTooltip = tooltipEl;
+}
+
+function showCustomTooltip(event, gameData) {
+    if (activeContextMenu) return;
+    if (!activeTooltip) initializeTooltip();
+    const tooltipLines = [];
+    if (viewMode !== 'grid' && gameData.gameSeries) tooltipLines.push(`<strong>Serie</strong>: ${gameData.gameSeries}`);
+    tooltipLines.push(`<strong>Metacritic</strong>: ${gameData.metacritic || 'N/D'}`);
+    tooltipLines.push(`<strong>Rating IGDB</strong>: ${gameData.rating || 'N/D'}`);
+    tooltipLines.push(`<strong>Generi</strong>: ${formatArray(gameData.genres)}`);
+    tooltipLines.push(`<strong>Sviluppatore</strong>: ${formatArray(gameData.developers)}`);
+    activeTooltip.innerHTML = tooltipLines.map(line => `<div>${line}</div>`).join('');
+    updateTooltipPosition(event);
+    activeTooltip.style.visibility = 'visible';
+    requestAnimationFrame(() => { activeTooltip.style.opacity = '1'; });
+}
+
+function updateTooltipPosition(event) {
+    if (!activeTooltip || activeTooltip.style.visibility === 'hidden') return;
+    const mouseX = event.clientX, mouseY = event.clientY, tooltipRect = activeTooltip.getBoundingClientRect(), offsetX = 15, offsetY = 15;
+    let newLeft, newTop;
+    activeTooltip.classList.remove('tooltip-left-triangle', 'tooltip-right-triangle');
+    if (mouseX + offsetX + tooltipRect.width < window.innerWidth - 10) { newLeft = mouseX + offsetX + window.scrollX; activeTooltip.classList.add('tooltip-left-triangle'); }
+    else { newLeft = mouseX - offsetX - tooltipRect.width + window.scrollX; activeTooltip.classList.add('tooltip-right-triangle'); }
+    if (mouseY + offsetY + tooltipRect.height < window.innerHeight - 10) { newTop = mouseY + offsetY + window.scrollY; }
+    else { newTop = mouseY - offsetY - tooltipRect.height + window.scrollY; }
+    if (newTop < window.scrollY + 10) newTop = window.scrollY + 10;
+    activeTooltip.style.left = `${newLeft}px`; activeTooltip.style.top = `${newTop}px`;
+}
+
+function hideCustomTooltip() {
+    clearTimeout(tooltipShowTimeout);
+    if (activeTooltip) {
+        activeTooltip.style.opacity = '0';
+        clearTimeout(tooltipHideTimeout);
+        tooltipHideTimeout = setTimeout(() => { if (activeTooltip && activeTooltip.style.opacity === '0') { activeTooltip.style.visibility = 'hidden'; } }, TOOLTIP_TRANSITION_DURATION + 10);
+    }
+}
+
+function closeActiveSubMenus() {
+    if (activeStatusSubMenu) { activeStatusSubMenu.remove(); activeStatusSubMenu = null; }
+    if (activeRatingSubMenu) { activeRatingSubMenu.remove(); activeRatingSubMenu = null; }
+}
+
+function closeAllContextMenus() {
+    closeActiveSubMenus();
+    if (activeContextMenu) { activeContextMenu.remove(); activeContextMenu = null; }
+}
+
+function isCursorOverMenu(event) {
+    const checkBounds = (element) => { if (!element) return false; const rect = element.getBoundingClientRect(); return (event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom); };
+    return checkBounds(activeContextMenu) || checkBounds(activeStatusSubMenu) || checkBounds(activeRatingSubMenu);
+}
+
+function createFavoriteIcon(parentElement, pageData) {
+    if (pageData.hasOwnProperty('favorite')) {
+        const favoriteIconContainer = parentElement.createEl("div", { cls: "game-card-favorite-icon" });
+        const svgElement = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svgElement.setAttribute("viewBox", "0 0 512 512");
+        const pathElement = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        const updateIconAppearance = (isFavorite) => { pathElement.setAttribute("d", isFavorite ? FA_HEART_SOLID_PATH : FA_HEART_REGULAR_PATH); pathElement.setAttribute("class", isFavorite ? "heart-filled-path" : "heart-empty-path"); };
+        updateIconAppearance(pageData.favorite);
+        svgElement.appendChild(pathElement); favoriteIconContainer.appendChild(svgElement);
+        favoriteIconContainer.onclick = async (event) => {
+            hideCustomTooltip(); event.stopPropagation(); event.preventDefault();
+            const filePath = pageData.file.path, newFavoriteStatus = !pageData.favorite;
+            try {
+                let fileContent = await app.vault.adapter.read(filePath);
+                const favoriteRegex = /^[ \t]*favorite:[ \t]*(true|false)/im;
+                if (fileContent.match(favoriteRegex)) { fileContent = fileContent.replace(favoriteRegex, `favorite: ${newFavoriteStatus}`); }
+                else { const frontmatterRegex = /---[\r\n]+([\s\S]*?)[\r\n]+---/; fileContent = frontmatterRegex.test(fileContent) ? fileContent.replace(frontmatterRegex, (match, fmContent) => `---${fmContent.trimRight()}\nfavorite: ${newFavoriteStatus}\n---`) : `---\nfavorite: ${newFavoriteStatus}\n---\n${fileContent}`; }
+                await app.vault.adapter.write(filePath, fileContent);
+                new Notice(`"${pageData.file.name}" ${newFavoriteStatus ? 'aggiunto ai' : 'rimosso dai'} preferiti!`);
+                pageData.favorite = newFavoriteStatus;
+                updateCardDisplay(pageData);
+                if (filterFavorite && !newFavoriteStatus && !isShowingSingleGameView) { applyAndRender(); }
+            } catch (err) { console.error("Errore aggiornando preferito:", err); new Notice("Errore aggiornamento preferito."); }
+        };
+    }
+}
+
+function updateCardDisplay(pageData) {
+    const existingCard = dv.container.querySelector(`[data-filepath="${pageData.file.path}"]`);
+    if (existingCard) { existingCard.replaceWith(renderSingleCard(pageData)); }
+    if (isShowingSingleGameView && activeSingleGame && activeSingleGame.file.path === pageData.file.path) {
+        Object.assign(activeSingleGame, pageData);
+        dv.container.innerHTML = "";
+        renderControls();
+        renderSingleGameDetailView(activeSingleGame, dv.container);
+    }
+}
+
+function renderSingleCard(p) {
+    const statusInfo = getStatusInfo(p);
+    const { i: iconSvgData, t: text, c: cls } = statusInfo;
+    let card;
+    const handleCardClick = (e) => {
+        const isInteractive = e.target.closest('a, button, .game-card-favorite-icon');
+        if (!isInteractive) {
+            hideCustomTooltip(); isTooltipDisabled = true; setTimeout(() => { isTooltipDisabled = false; }, 2500);
+            if (card) { 
+                card.style.opacity = '0'; card.style.transform = 'scale(0.95) translateY(-4px)';
+                createParticleVortex(card, () => { app.workspace.openLinkText(p.file.path, "", false); });
+            }
+        }
+    };
+
+    if (viewMode === 'grid') {
+        card = createElement("div", { cls: "game-card", attr: { "data-filepath": p.file.path } });
+        card.onmouseenter = (e) => {
+            if (isTooltipDisabled) return;
+            clearTimeout(tooltipShowTimeout);
+            if (!activeContextMenu) {
+                tooltipShowTimeout = setTimeout(() => {
+                    updateTooltipPosition(e);
+                    const tooltipData = { metacritic: p.metacritic, rating: p.rating, genres: p.genres, developers: p.developers };
+                    showCustomTooltip(e, tooltipData);
+                }, TOOLTIP_SHOW_DELAY);
+            }
+        };
+        card.onmouseleave = () => { clearTimeout(tooltipShowTimeout); hideCustomTooltip(); };
+        card.onmousemove = (e) => { if (activeTooltip && activeTooltip.style.visibility === 'visible') updateTooltipPosition(e); };
+        card.oncontextmenu = (e) => createContextMenu(e, p);
+
+        card.createEl("img", { cls: "game-card-image", attr: { src: getImageUrl(p.coverUrl) } });
+        createFavoriteIcon(card, p);
+        
+        const content = card.createEl("div", { cls: "game-card-content" }); 
+        
+        content.createEl("div", { cls: "game-card-title", text: p.file.name });
+
+        const seriesYearRow = content.createEl("div", { cls: "game-card-series-year-row" });
+        let seriesIsPresent = false;
+        if (p.gameSeries) {
+            seriesYearRow.createEl("div", { cls: "game-card-series", text: p.gameSeries });
+            seriesIsPresent = true;
+        } else {
+             seriesYearRow.createEl("div", { cls: "game-card-series placeholder" }); 
+        }
+
+        if (p.year) {
+            const yearDiv = seriesYearRow.createEl("div", { cls: "game-card-year-block", text: p.year });
+            if(seriesIsPresent){
+                yearDiv.style.marginLeft = "auto";
+            }
+        } else {
+            const placeholderYear = seriesYearRow.createEl("div", { cls: "game-card-year-block placeholder" });
+            if(seriesIsPresent){ // Anche se l'anno è un placeholder, se la serie c'è, spingilo
+                placeholderYear.style.marginLeft = "auto";
+            }
+        }
+        
+        content.createEl("div", { cls: "game-card-plot truncated", text: p.plot || "Nessuna descrizione disponibile." });
+
+        const starsHtml = renderMyStars(p.my_rating);
+        if (starsHtml) {
+            content.createEl("div", {cls: "my-rating-stars-wrapper-grid"}).innerHTML = starsHtml;
+        } else {
+            content.createEl("div", {cls: "my-rating-stars-wrapper-grid placeholder"});
+        }
+        
+        const footerGrid = content.createEl("div", { cls: "game-card-footer-grid" });
+        footerGrid.createEl("hr", {cls: "footer-separator-grid"}); 
+
+        let statusWrapper = footerGrid.createEl("div", {cls: "status-wrapper-grid"});
+        let statusText = `<span class="status-button ${cls}">${iconSvgData} ${text}</span>`;
+        if (p.sandbox) { statusText += `<span class="status-button sandbox" title="Sandbox">${statusMap.sandbox.i}</span>`; } // Icona sandbox per griglia
+        statusWrapper.innerHTML = statusText;
+
+    } else if (viewMode === 'list') {
+        card = createElement("div", { cls: "list-item-card-new", attr: { "data-filepath": p.file.path } });
+        card.oncontextmenu = (e) => createContextMenu(e, p);
+        createFavoriteIcon(card, p);
+        const coverContainer = card.createEl("div", { cls: "list-item-cover-container-new" });
+        coverContainer.createEl("img", { cls: "list-item-cover-new", attr: { src: getImageUrl(p.coverUrl) } });
+        const detailsContainer = card.createEl("div", { cls: "list-item-details-new" });
+        if (p.gameSeries) detailsContainer.createEl("div", { cls: "list-item-series-new", text: p.gameSeries });
+        detailsContainer.createEl("div", { cls: "list-item-title-new", text: p.file.name });
+        const metaFlex = detailsContainer.createEl("div", { cls: "list-item-meta-flex-new" });
+        if (p.year) metaFlex.createEl("span", { cls: "list-item-year-new", text: p.year });
+        metaFlex.innerHTML += renderMyStars(p.my_rating);
+        if (p.rating) metaFlex.createEl("span", { cls: "list-item-critic-new", text: `| Critica: ${p.rating}` });
+        detailsContainer.createEl("div", { cls: "list-item-plot-new", text: p.plot || "Nessuna descrizione." });
+        const footerFlex = detailsContainer.createEl("div", { cls: "list-item-footer-flex-new" });
+        let statusText = `<span class="status-button ${cls}">${iconSvgData} ${text}</span>`;
+        if (p.sandbox) { statusText += `<span class="status-button sandbox" title="Sandbox">${statusMap.sandbox.i} ${statusMap.sandbox.t}</span>`; } // Icona + Testo per lista
+        footerFlex.innerHTML = statusText;
+        if (p.url) {
+            const igdbLink = footerFlex.createEl("a", { text: "Vedi su IGDB", cls: "list-igdb-link-new", attr: { "aria-label": "Vedi su IGDB" } });
+            igdbLink.href = p.url; igdbLink.target = "_blank";
+            igdbLink.onclick = (event) => { event.stopPropagation(); };
+        }
+    } else if (viewMode === 'compact') {
+        card = createElement("div", { cls: "game-card-compact", attr: { "data-title": p.file.name, "data-filepath": p.file.path } });
+        card.createEl("img", { attr: { src: getImageUrl(p.coverUrl), alt: p.file.name } });
+    }
+
+    if(card) { card.onclick = handleCardClick; }
+    return card;
+}
+
+function renderCards(container, data) {
+    container.innerHTML = '';
+    data.forEach(p => container.appendChild(renderSingleCard(p)));
+}
+
+async function updateGameStatusInFile(filePath, pageData, newStatus) {
+    try {
+        let fileContent = await app.vault.adapter.read(filePath);
+        const exclusiveStatusKeys = ["played", "playing", "dropped"];
+        const isTogglingOff = pageData[newStatus.key] === true && exclusiveStatusKeys.includes(newStatus.key);
+        if (isTogglingOff) { newStatus.key = 'default'; }
+        if (exclusiveStatusKeys.includes(newStatus.key) || newStatus.key === "default") {
+            exclusiveStatusKeys.forEach(key => {
+                const regex = new RegExp(`^([ \\t]*${key}:[ \\t]*)(true|false)`, "im");
+                let valueToSet = (newStatus.key === key); pageData[key] = valueToSet;
+                if (fileContent.match(regex)) { fileContent = fileContent.replace(regex, `$1${valueToSet}`); }
+                else { fileContent = fileContent.replace(/---[\r\n]+/, `---\n${key}: ${valueToSet}\n`); }
+            });
+        }
+        if (newStatus.key === 'sandbox') {
+            const sandboxRegex = /^([ \\t]*sandbox:[ \\t]*)(true|false)/im;
+            pageData.sandbox = newStatus.value;
+            if (fileContent.match(sandboxRegex)) { fileContent = fileContent.replace(sandboxRegex, `$1${newStatus.value}`); }
+            else { fileContent = fileContent.replace(/---[\r\n]+/, `---\nsandbox: ${newStatus.value}\n`); }
+        }
+        await app.vault.adapter.write(filePath, fileContent);
+        const gameName = pageData?.file?.name || 'Gioco';
+        const activeStatuses = [];
+        exclusiveStatusKeys.forEach(k => { if (pageData[k]) activeStatuses.push(statusMap[k].t); });
+        if (pageData.sandbox) activeStatuses.push(statusMap.sandbox.t);
+        const finalNotificationText = activeStatuses.length > 0 ? `Stato di "${gameName}" aggiornato a: ${activeStatuses.join(' & ')}` : `Stato di "${gameName}" resettato a: ${statusMap.default.t}`;
+        new Notice(finalNotificationText);
+        updateCardDisplay(pageData);
+    } catch (err) { console.error("Errore aggiornando stato gioco:", err); new Notice("Errore aggiornamento stato gioco."); }
+}
+
+async function updateGameRatingInFile(filePath, pageData, newRatingValue) {
+    try {
+        let fileContent = await app.vault.adapter.read(filePath);
+        const ratingRegex = /^([ \\t]*my_rating:[ \\t]*)((\d+(\.\d)?)|null)/im;
+        const valueToSet = (getRatingValue(pageData.my_rating) === newRatingValue) ? 0 : newRatingValue;
+        pageData.my_rating = valueToSet;
+        if (fileContent.match(ratingRegex)) { fileContent = fileContent.replace(ratingRegex, `$1${valueToSet}`); }
+        else { fileContent = fileContent.replace(/---[\r\n]+/, `---\nmy_rating: ${valueToSet}\n`); }
+        await app.vault.adapter.write(filePath, fileContent);
+        new Notice(`Voto di "${pageData.file.name}" aggiornato a: ${valueToSet === 0 ? 'Nessun voto' : valueToSet}`);
+        updateCardDisplay(pageData);
+    } catch (err) { console.error("Errore aggiornando il voto del gioco:", err); new Notice("Errore aggiornamento voto."); }
+}
+
+function createContextMenu(event, pageData) {
+    event.preventDefault(); hideCustomTooltip(); closeAllContextMenus();
+    activeContextMenu = createElement("div", { cls: "custom-context-menu" });
+    activeContextMenu.style.left = `${event.clientX + window.scrollX}px`;
+    activeContextMenu.style.top = `${event.clientY + window.scrollY}px`;
+    document.body.appendChild(activeContextMenu);
+    activeContextMenu._pageDataRef = pageData;
+
+    const closeOption = activeContextMenu.createEl("div", { cls: "context-menu-option context-menu-close-option" });
+    closeOption.innerHTML = `<span class="context-menu-back-arrow"><-</span><span class="context-menu-info-text">Chiudi</span>`;
+    closeOption.onmouseenter = () => closeActiveSubMenus();
+    closeOption.onclick = (e) => { e.stopPropagation(); closeAllContextMenus(); };
+
+    const viewInfoOption = activeContextMenu.createEl("div", { cls: "context-menu-option" });
+    viewInfoOption.innerHTML = `${ICON_SVG_INFO}Informazioni`;
+    viewInfoOption.onmouseenter = () => closeActiveSubMenus();
+    viewInfoOption.onclick = () => { closeAllContextMenus(); isShowingSingleGameView = true; activeSingleGame = pageData; applyAndRender(false, true); };
+
+    if (pageData.url) {
+        const igdbLinkOption = activeContextMenu.createEl("div", { cls: "context-menu-option" });
+        igdbLinkOption.innerHTML = `${ICON_SVG_IGDB_LINK}Vedi su IGDB`;
+        igdbLinkOption.onmouseenter = () => closeActiveSubMenus();
+        igdbLinkOption.onclick = (e) => {
+            e.stopPropagation();
+            window.open(pageData.url, '_blank');
+            closeAllContextMenus();
+        };
+    }
+
+    activeContextMenu.createEl("div", { cls: "context-menu-separator" });
+    const statusOption = activeContextMenu.createEl("div", { cls: "context-menu-option context-menu-option-has-submenu", text: "Stato" });
+
+    const createStatusSubMenu = (gameData) => {
+        if (activeStatusSubMenu) activeStatusSubMenu.remove();
+        if (activeRatingSubMenu) activeRatingSubMenu.remove();
+        activeStatusSubMenu = createElement("div", { cls: "custom-context-menu status-submenu" });
+        document.body.appendChild(activeStatusSubMenu);
+        ['default', 'played', 'playing', 'dropped'].forEach(statusKey => {
+            const option = statusMap[statusKey];
+            const text = statusKey === 'default' ? 'Nessuno' : option.t;
+            const item = activeStatusSubMenu.createEl("div", { cls: "context-menu-toggle-item" });
+            const toggleBox = item.createEl("div", { cls: "toggle-box exclusive-status-toggle" });
+            if ((statusKey === 'default' && !gameData.played && !gameData.playing && !gameData.dropped) || gameData[statusKey]) { toggleBox.classList.add('checked'); }
+            toggleBox.createEl("span", { cls: "toggle-check" });
+            item.createEl("label", { text: text });
+            item.onclick = async (e) => {
+                e.stopPropagation();
+                const isCurrentlyChecked = toggleBox.classList.contains('checked');
+                if (!isCurrentlyChecked) {
+                    activeStatusSubMenu.querySelectorAll('.exclusive-status-toggle').forEach(t => t.classList.remove('checked'));
+                    toggleBox.classList.add('checked');
+                    await updateGameStatusInFile(gameData.file.path, gameData, { key: statusKey, text: option.t });
+                } else {
+                    toggleBox.classList.remove('checked');
+                    const defaultToggleBox = Array.from(activeStatusSubMenu.querySelectorAll('.exclusive-status-toggle')).find((el, idx) => idx === 0);
+                    if(defaultToggleBox) defaultToggleBox.classList.add('checked');
+                    await updateGameStatusInFile(gameData.file.path, gameData, { key: 'default', text: statusMap.default.t });
+                }
+            };
+        });
+        activeStatusSubMenu.createEl("div", { cls: "context-menu-separator" });
+        const sandboxOption = statusMap['sandbox'];
+        const toggleItem = activeStatusSubMenu.createEl("div", { cls: "context-menu-toggle-item" });
+        const toggleBox = toggleItem.createEl("div", { cls: "toggle-box" });
+        if (gameData[sandboxOption.key]) toggleBox.classList.add('checked');
+        toggleBox.createEl("span", { cls: "toggle-check" });
+        toggleItem.createEl("label", { text: sandboxOption.t });
+        toggleItem.onclick = async (e) => {
+            e.stopPropagation();
+            const newState = !gameData[sandboxOption.key];
+            toggleBox.classList.toggle('checked', newState);
+            await updateGameStatusInFile(gameData.file.path, gameData, { key: 'sandbox', value: newState, text: sandboxOption.t });
+        };
+        const mainRect = statusOption.getBoundingClientRect();
+        activeStatusSubMenu.style.left = `${mainRect.right + window.scrollX + 5}px`;
+        activeStatusSubMenu.style.top = `${mainRect.top + window.scrollY}px`;
+        const clearSubMenuTimeout = () => clearTimeout(statusSubMenuTimeout);
+        const closeSubMenuWithDelay = () => { statusSubMenuTimeout = setTimeout(() => { if (activeStatusSubMenu) { activeStatusSubMenu.remove(); activeStatusSubMenu = null; } }, 300); };
+        statusOption.onmouseleave = closeSubMenuWithDelay;
+        activeStatusSubMenu.onmouseenter = clearSubMenuTimeout;
+        activeStatusSubMenu.onmouseleave = closeSubMenuWithDelay;
+    };
+    statusOption.onmouseenter = () => { clearTimeout(statusSubMenuTimeout); createStatusSubMenu(pageData); };
+    activeContextMenu.createEl("div", { cls: "context-menu-separator" });
+    const ratingOption = activeContextMenu.createEl("div", { cls: "context-menu-option context-menu-option-has-submenu", text: "Il Mio Voto" });
+    const createRatingSubMenu = (gameData) => {
+        if (activeRatingSubMenu) activeRatingSubMenu.remove();
+        if (activeStatusSubMenu) activeStatusSubMenu.remove();
+        activeRatingSubMenu = createElement("div", { cls: "custom-context-menu rating-submenu" });
+        document.body.appendChild(activeRatingSubMenu);
+        const currentRating = getRatingValue(gameData.my_rating);
+        const ratingValues = [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5];
+        ratingValues.forEach(val => {
+            const ratingItem = activeRatingSubMenu.createEl("div", { cls: "context-menu-toggle-item" });
+            const toggleBox = ratingItem.createEl("div", { cls: "toggle-box rating-toggle" });
+            if (currentRating === val) toggleBox.classList.add('checked');
+            toggleBox.createEl("span", { cls: "toggle-check" });
+            const label = ratingItem.createEl("label");
+            label.innerHTML = renderMyStars(val, true);
+            ratingItem.onclick = async (e) => {
+                e.stopPropagation();
+                const isCurrentlyChecked = toggleBox.classList.contains('checked');
+                const newValue = isCurrentlyChecked ? 0 : val;
+                activeRatingSubMenu.querySelectorAll('.rating-toggle').forEach(t => t.classList.remove('checked'));
+                if (newValue !== 0) {
+                    toggleBox.classList.add('checked');
+                } else {
+                    const noRatingItemToggle = Array.from(activeRatingSubMenu.querySelectorAll('.rating-toggle')).find((el, idx) => idx === 0);
+                    if(noRatingItemToggle) noRatingItemToggle.classList.add('checked');
+                }
+                await updateGameRatingInFile(gameData.file.path, gameData, newValue);
+            };
+        });
+        const mainRect = ratingOption.getBoundingClientRect();
+        activeRatingSubMenu.style.left = `${mainRect.right + window.scrollX + 5}px`;
+        activeRatingSubMenu.style.top = `${mainRect.top + window.scrollY}px`;
+        const clearRatingSubMenuTimeout = () => clearTimeout(ratingSubMenuTimeout);
+        const closeRatingSubMenuWithDelay = () => { ratingSubMenuTimeout = setTimeout(() => { if (activeRatingSubMenu) { activeRatingSubMenu.remove(); activeRatingSubMenu = null; } }, 300); };
+        ratingOption.onmouseleave = closeRatingSubMenuWithDelay;
+        activeRatingSubMenu.onmouseenter = clearRatingSubMenuTimeout;
+        activeRatingSubMenu.onmouseleave = closeRatingSubMenuWithDelay;
+    };
+    ratingOption.onmouseenter = () => { clearTimeout(ratingSubMenuTimeout); createRatingSubMenu(pageData); };
+}
+
+
+function saveSettings() {
+    try {
+        const settings = { sortField, sortOrder, filterStatus, filterFavorite, searchTerm, viewMode };
+        localStorage.setItem("gameViewSettings", JSON.stringify(settings));
+    } catch (e) { console.error("Errore salvataggio impostazioni:", e); }
+}
+
+function loadSettings() {
+    try {
+        const savedSettings = localStorage.getItem("gameViewSettings");
+        if (savedSettings) {
+            const settings = JSON.parse(savedSettings);
+            sortField = settings.sortField || "name";
+            sortOrder = settings.sortOrder || "asc";
+            filterStatus = settings.filterStatus || "Tutti";
+            filterFavorite = settings.filterFavorite || false;
+            searchTerm = settings.searchTerm || "";
+            viewMode = settings.viewMode || "grid";
+        }
+    } catch (e) { console.error("Errore caricamento impostazioni:", e); }
+}
+
+function renderControls() {
+    const cssStyles = `
+        :root {
+            --card-background: #252525; --text-color: #E0E0E0; --text-muted: #A0A0A0;
+            --accent-color-game: #C62828; 
+            --accent-color-game-hover: #B71C1C; 
+            --hover-background: #333333; --star-color-filled: #FFD700; --star-color-empty: var(--text-muted);
+            --favorite-heart-color: #4CAF50; --favorite-heart-empty-stroke-color: var(--text-muted);
+            --favorite-heart-filled-hover-color: var(--accent-color-game); 
+            --context-menu-bg: #2D2D2D; --context-menu-hover-bg: var(--accent-color-game-hover); --context-menu-text: var(--text-color);
+            --context-menu-hover-text: #FFFFFF; --context-menu-border: #444; --submenu-bg: #353535; --toggle-box-border: var(--text-muted);
+            --toggle-box-checked-bg: var(--accent-color-game); --toggle-check-color: #FFFFFF;
+            --color-sort-name: #61AFEF; --color-sort-year: #E5C07B; --color-sort-rating: #FFD700;
+            --color-status-all: #ABB2BF; --color-status-played: #98C379; --color-status-playing: #61AFEF; --color-status-dropped: #E06C75;
+            --color-status-sandbox: #E5C07B; --color-status-default: #999;
+            --color-view: #ABB2BF; --color-add: #98C379; --color-favorite: #E06C75; --color-random: #C678DD; --color-reset: #61AFEF;
+        }
+        .dataview.dataview-container, .dataview-container > div:first-child { padding: 0 !important; margin: 0 !important; width: 100%; box-sizing: border-box; }
+        .games-view { display: grid; gap: 1.5rem; padding: 1.5rem 0.5rem; width: 100%; box-sizing: border-box; overflow-x: hidden; }
+        .games-view.grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+        .games-view.compact { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+        .games-view.list { grid-template-columns: 1fr; gap: 1rem; }
+        .vortex-container { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 10000; overflow: hidden; }
+        .vortex-particle { position: absolute; }
+        
+        .game-card { 
+            background-color: var(--card-background); 
+            border-radius: 8px; 
+            box-shadow: 0 4px 16px rgba(0,0,0,0.3); 
+            cursor: pointer; 
+            position: relative; 
+            display: flex; 
+            flex-direction: column; 
+            width: 100%; 
+            overflow: hidden;
+            transition: transform 0.2s ease, box-shadow 0.2s ease, filter 0.2s ease, opacity 0.6s ease-out !important;
+        }
+        .game-card:hover { transform: translateY(-4px); box-shadow: 0 8px 20px rgba(0,0,0,0.4); }
+        
+        .game-card-series { 
+            font-size: 0.8em; 
+            color: var(--accent-color-game) !important; 
+            font-style: italic; 
+            transition: none !important; 
+            text-shadow: none !important; 
+            filter: none !important; 
+            margin-right: 8px; 
+            flex-shrink: 0; 
+        }
+        .game-card:hover .game-card-series { 
+            color: var(--accent-color-game) !important; 
+        }
+        .game-card-series.placeholder {
+             display: none;
+        }
+
+        .game-card-image { 
+            width: 100%; 
+            height: 160px; 
+            object-fit: cover; 
+            border-top-left-radius: 8px; 
+            border-top-right-radius: 8px; 
+            background-color: #333;
+            flex-shrink: 0; 
+        }
+
+        .game-card-content { 
+            padding: 15px; 
+            flex-grow: 1; 
+            display: flex; 
+            flex-direction: column;
+            overflow: hidden; 
+        }
+        .game-card-title { font-size: 1.1em; font-weight: 600; color: var(--text-color); margin-bottom: 4px; flex-shrink: 0; }
+        
+        .game-card-series-year-row {
+            display: flex;
+            align-items: center; 
+            margin-bottom: 8px; 
+            flex-shrink: 0;
+            min-height: 1.2em; 
+        }
+        .game-card-year-block { 
+            font-size: 0.85em; 
+            color: var(--text-muted); 
+            flex-shrink: 0;
+        } 
+        .game-card-year-block.placeholder { 
+            min-height: 1.02em; 
+            visibility: hidden; 
+            flex-shrink: 0;
+        }
+
+        .game-card-plot.truncated { 
+            font-size: 0.85em; 
+            color: var(--text-muted); 
+            line-height: 1.4; 
+            margin-top: 8px; 
+            margin-bottom: 8px; 
+            overflow: hidden; 
+            text-overflow: ellipsis; 
+            display: -webkit-box; 
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: 6; 
+            flex-grow: 1; 
+            min-height: 0; 
+        }
+        
+        .my-rating-stars-wrapper-grid { 
+            margin-bottom: 8px; 
+            min-height: 20px; 
+            font-size: 0.8em; 
+            color: var(--text-muted);
+            flex-shrink: 0; 
+        }
+        .my-rating-stars-wrapper-grid.placeholder {
+            min-height: 20px; 
+            flex-shrink: 0;
+        }
+
+        .game-card-footer-grid { 
+            margin-top: auto; 
+            padding-top: 0; 
+            border-top: none; 
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            width: 100%; 
+            flex-shrink: 0; 
+        }
+        .game-card-footer-grid .footer-separator-grid {
+            width: 100%;
+            border: none;
+            border-top: 1px solid #3a3a3a; 
+            margin: 0 0 8px 0; 
+        }
+        .status-wrapper-grid { 
+            display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+        }
+
+        .status-button { display: inline-flex; align-items: center; gap: 6px; background-color: rgba(255, 255, 255, 0.08); padding: 4px 10px; border-radius: 20px; font-size: 0.8em; color: var(--text-muted); white-space: nowrap; transition: background-color 0.2s ease, color 0.2s ease; }
+        .status-button.sandbox { padding: 4px; width: auto; height: 24px; justify-content: center; } /* Rimosso width fisso */
+        .status-button svg { width: 14px; height: 14px; display: inline-block !important; fill: currentColor !important;} /* Assicura visibilità SVG */
+        .status-button.played { color: var(--color-status-played); } .status-button.playing { color: var(--color-status-playing); } .status-button.dropped { color: var(--color-status-dropped); } 
+        .status-button.sandbox { color: var(--color-status-sandbox); } /* Colore per sandbox */
+
+        .single-game-footer .status-button.sandbox svg { /* Già presente, ma per ribadire */
+            display: inline-block !important; 
+            fill: currentColor !important; 
+        }
+         .single-game-footer .status-button.sandbox {
+            color: var(--color-status-sandbox) !important; 
+        }
+        
+        .game-card-favorite-icon { position: absolute; top: 10px; right: 10px; width: 22px; height: 22px; z-index: 5; cursor: pointer; }
+        .game-card-favorite-icon svg { width: 100%; height: 100%; display: block; transition: transform 0.1s ease-out; }
+        .game-card-favorite-icon:hover svg { transform: scale(1.15); }
+        .game-card-favorite-icon .heart-filled-path { fill: var(--favorite-heart-color); transition: fill 0.2s ease; }
+        .game-card-favorite-icon:hover .heart-filled-path { fill: var(--favorite-heart-filled-hover-color); }
+        .game-card-favorite-icon .heart-empty-path { fill: none; stroke: var(--favorite-heart-empty-stroke-color); stroke-width: 30; transition: stroke 0.2s ease; }
+        .game-card-favorite-icon:hover .heart-empty-path { stroke: var(--favorite-heart-color); }
+        .list-item-card-new { display: flex; gap: 1.5rem; padding: 1rem; background-color: var(--card-background); border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.3); cursor: pointer; position: relative; }
+        .list-item-card-new:hover { transform: translateY(-4px); box-shadow: 0 8px 20px rgba(0,0,0,0.4); }
+        .list-item-cover-container-new { flex-shrink: 0; }
+        .list-item-cover-new { width: 120px; height: 160px; object-fit: cover; border-radius: 6px; }
+        .list-item-details-new { display: flex; flex-direction: column; gap: 0.5rem; flex-grow: 1; }
+        .list-item-series-new { font-size: 0.8em; color: var(--accent-color-game); font-weight: 500; }
+        .list-item-title-new { font-size: 1.3em; font-weight: 600; color: var(--text-color); }
+        .list-item-meta-flex-new { display: flex; align-items: center; gap: 0.75rem; font-size: 0.9em; color: var(--text-muted); flex-wrap: wrap; }
+        .list-item-plot-new { font-size: 0.9em; color: var(--text-muted); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis; margin: 0.25rem 0; }
+        .list-item-footer-flex-new { display: flex; align-items: center; gap: 1rem; margin-top: auto; }
+        .list-igdb-link-new { padding: 5px 10px; font-size: 0.85em; text-decoration: none; background-color: var(--accent-color-game); color: #FFFFFF; border-radius: 5px; white-space: nowrap; transition: filter 0.2s ease; }
+        .list-igdb-link-new:hover { filter: brightness(0.9); }
+        .game-card-compact { position: relative; width: 100%; aspect-ratio: 3/4; border-radius: 8px; overflow: hidden; cursor: pointer; }
+        .game-card-compact img { width: 100%; height: 100%; object-fit: cover; }
+        .game-card-compact:hover { transform: scale(1.05); filter: brightness(0.8); }
+        .game-card-compact::after { content: attr(data-title); position: absolute; bottom: 0; left: 0; width: 100%; height: 50%; display: flex; align-items: flex-end; justify-content: center; padding: 10px; box-sizing: border-box; background: linear-gradient(to top, rgba(0,0,0,0.95) 20%, transparent); color: white; font-size: 0.9em; text-align: center; opacity: 0; transition: opacity 0.2s ease; pointer-events: none; white-space: pre-wrap; line-height: 1.2; }
+        .game-card-compact:hover::after { opacity: 1; }
+        .my-rating-stars { font-size: 1em; letter-spacing: 1px; display: inline-flex; align-items: center; gap: 2px; }
+        .my-star-svg { width: 1em; height: 1em; vertical-align: middle; }
+        .half-star-svg-container { display: inline-block; position: relative; width: 1em; height: 1em; vertical-align: middle; overflow: hidden; line-height: 1; }
+        .half-star-svg-container .half-star-filled-svg { position: absolute; top: 0; left: 0; clip-path: inset(0 50% 0 0); }
+        .half-star-svg-container .half-star-empty-svg { position: absolute; top: 0; left: 0; }
+        .menu-half-star-container { display: inline-block; position: relative; width: 0.9em; height: 0.9em; vertical-align: middle; overflow: hidden; line-height: 1; }
+        .menu-half-star-container .half-star-filled-svg { position: absolute; top: 0; left: 0; clip-path: inset(0 50% 0 0); }
+        .menu-half-star-container .half-star-empty-svg { position: absolute; top: 0; left: 0; }
+        .dynamic-game-tooltip { background-color: #1c1c1c; color: var(--text-muted, #A0A0A0); padding: 10px 12px; border-radius: 6px; border: 1px solid #3a3a3a; font-size: 0.85em; line-height: 1.5; white-space: pre-wrap; max-width: 300px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); opacity: 0; visibility: hidden; transition: opacity ${TOOLTIP_TRANSITION_DURATION}ms ease-out; }
+        .dynamic-game-tooltip strong { font-weight: 600; color: var(--text-color); }
+        .dynamic-game-tooltip::before, .dynamic-game-tooltip::after { content: ''; position: absolute; width: 0; height: 0; border-style: solid; }
+        .dynamic-game-tooltip.tooltip-left-triangle::before { border-width: 8px 8px 8px 0; border-color: transparent #1c1c1c transparent transparent; left: -8px; top: 50%; transform: translateY(-50%); z-index: 100001; }
+        .dynamic-game-tooltip.tooltip-left-triangle::after { border-width: 9px 9px 9px 0; border-color: transparent #3a3a3a transparent transparent; left: -9px; top: 50%; transform: translateY(-50%); z-index: 100000; }
+        .dynamic-game-tooltip.tooltip-right-triangle::before { border-width: 8px 0 8px 8px; border-color: transparent transparent transparent #1c1c1c; right: -8px; top: 50%; transform: translateY(-50%); z-index: 100001; }
+        .dynamic-game-tooltip.tooltip-right-triangle::after { border-width: 9px 0 9px 9px; border-color: transparent transparent transparent #3a3a3a; right: -9px; top: 50%; transform: translateY(-50%); z-index: 100000; }
+        .custom-context-menu { position: absolute; background-color: var(--context-menu-bg); border: 1px solid var(--context-menu-border); border-radius: 4px; box-shadow: 0 2px 10px rgba(0,0,0,0.2); z-index: 10000; padding: 4px 0; min-width: 150px; }
+        .context-menu-option { padding: 8px 12px; color: var(--context-menu-text); cursor: pointer; font-size: 0.9em; white-space: nowrap; position: relative; display: flex; align-items: center; }
+        .context-menu-option .menu-icon-svg { width: 1em; height: 1em; margin-right: 8px; vertical-align: -0.15em; fill: currentColor; }
+        .context-menu-option:hover { background-color: var(--context-menu-hover-bg); color: var(--context-menu-hover-text); }
+        .context-menu-option-has-submenu::after { content: '▶'; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: 0.8em; color: var(--text-muted); }
+        .context-menu-separator { height: 1px; background-color: var(--context-menu-border); margin: 4px 0; }
+        .context-menu-close-option { display: flex; align-items: center; gap: 8px; }
+        .status-submenu, .rating-submenu { background-color: var(--submenu-bg); min-width: 180px; position: absolute; padding: 4px 0; }
+        .context-menu-toggle-item { display: flex; align-items: center; padding: 6px 12px; cursor: pointer; gap: 8px;}
+        .context-menu-toggle-item:hover { background-color: var(--context-menu-hover-bg); }
+        .context-menu-toggle-item:hover label, .context-menu-toggle-item:hover .menu-rating-stars { color: var(--context-menu-hover-text); }
+        .context-menu-toggle-item label { flex-grow: 1; vertical-align: middle; display: inline-flex; align-items: center; }
+        .context-menu-toggle-item .toggle-box { width: 14px; height: 14px; border: 1px solid var(--toggle-box-border); border-radius: 3px; position: relative; flex-shrink: 0; transition: background-color 0.2s ease, border-color 0.2s ease; }
+        .context-menu-toggle-item .toggle-box.checked { background-color: var(--toggle-box-checked-bg); border-color: var(--toggle-box-checked-bg); }
+        .context-menu-toggle-item .toggle-check { display: block; width: 3px; height: 7px; border: solid var(--toggle-check-color); border-width: 0 2px 2px 0; transform: rotate(45deg); position: absolute; left: 4px; top: 1px; opacity: 0; transition: opacity 0.2s ease; }
+        .context-menu-toggle-item .toggle-box.checked .toggle-check { opacity: 1; }
+        .menu-rating-stars { display: inline-flex; align-items: center; gap: 1px; }
+        .menu-star-svg { width: 0.9em; height: 0.9em; vertical-align: middle; }
+        .dataview-controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding: 10px; background-color: var(--card-background); border: 1px solid #3a3a3a; border-radius: 8px; flex-wrap: wrap; gap: 10px; position: relative; z-index: 10; }
+        .left-controls, .right-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .control-label { color: var(--text-muted); margin-right: -4px; font-size: 0.9em; }
+        .btn-group { display: flex; align-items: center; gap: 5px; }
+        .ctrl-btn { --btn-color: var(--text-muted); padding: 6px; background-color: #252525; border: 1px solid #3a3a3a; border-radius: 6px; color: var(--btn-color); cursor: pointer; transition: all 0.2s ease; font-size: 0.9em; display: flex; align-items: center; gap: 4px; min-width: 28px; height: 28px; justify-content: center; flex-shrink: 0; }
+        .ctrl-btn svg { stroke: var(--btn-color); transition: all 0.2s ease; fill: transparent; }
+        .ctrl-btn .icon-filled { fill: var(--btn-color); stroke: var(--btn-color); }
+        .ctrl-btn:hover, .ctrl-btn.active { background-color: transparent !important; border-color: var(--btn-color) !important; color: var(--btn-color) !important; box-shadow: 0 0 5px 0px var(--btn-color); }
+        .ctrl-btn:hover svg, .ctrl-btn.active svg { stroke: var(--btn-color); }
+        .ctrl-btn:hover .icon-filled, .ctrl-btn.active .icon-filled { fill: var(--btn-color); stroke: var(--btn-color);}
+        .search-input-wrapper { position: relative; display: flex; align-items: center; gap: 5px; }
+        .search-input { height: 28px; width: 200px; font-size: 14px; background-color: #252525; color: #fff; border: 1px solid #3a3a3a; border-radius: 6px; padding: 6px 10px; outline: none; transition: border-color 0.3s ease; box-sizing: border-box; }
+        .search-input:focus { border-color: var(--accent-color-game); }
+        .sort-name-btn { --btn-color: var(--color-sort-name); } .sort-year-btn { --btn-color: var(--color-sort-year); } .sort-rating-btn { --btn-color: var(--color-sort-rating); }
+        .status-all-btn { --btn-color: var(--color-status-all); } .status-played-btn { --btn-color: var(--color-status-played); } .status-playing-btn { --btn-color: var(--color-status-playing); } .status-dropped-btn { --btn-color: var(--color-status-dropped); } .status-sandbox-btn { --btn-color: var(--color-status-sandbox); } .status-default-btn { --btn-color: var(--color-status-default); }
+        .view-grid-btn, .view-compact-btn, .view-list-btn { --btn-color: var(--color-view); }
+        .add-game-btn { --btn-color: var(--color-add); } .favorite-btn { --btn-color: var(--color-favorite); } .random-btn { --btn-color: var(--color-random); } .reset-btn { --btn-color: var(--color-reset); }
+        .search-count { width: 100%; text-align: center; margin: 10px 0 15px; font-style: italic; color: var(--text-muted); font-size: 0.9em; }
+        .search-suggester { position: absolute; top: calc(100% + 4px); left: 0; width: 100%; background-color: #1c1c1c; border: 1px solid #3a3a3a; border-radius: 6px; max-height: 200px; overflow-y: auto; z-index: 1000; display: none; box-shadow: 0 4px 12px rgba(0,0,0,0.3); box-sizing: border-box; }
+        .suggestion-item { padding: 8px 12px; color: var(--text-muted); font-size: 0.9em; cursor: pointer; }
+        .suggestion-item:hover { background-color: var(--accent-color-game-hover); color: #FFFFFF; }
+        .single-game-detail-wrapper { width: 100%; max-width: 900px; margin: 1rem auto; padding: 0 1rem; box-sizing: border-box; }
+        .single-game-detail-view { display: flex; flex-direction: column; gap: 1rem; padding: 1.5rem; background-color: var(--card-background); border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.3); position: relative; }
+        .single-game-header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+        .single-game-header-title { font-size: 1.5em; font-weight: 600; color: var(--text-color); flex-grow: 1; }
+        .single-game-home-btn { flex-shrink: 0; margin-left: 1rem; }
+        .single-game-content-wrapper { display: flex; flex-direction: row; gap: 1.5rem; align-items: flex-start; }
+        .single-game-image { width: 250px; max-height: 350px; object-fit: cover; border-radius: 6px; cursor: pointer; flex-shrink: 0; transition: transform 0.2s ease, opacity 0.6s ease-out; }
+        .single-game-details { display: flex; flex-direction: column; gap: 0.5rem; flex-grow: 1; text-align: left; }
+        .single-game-title-container { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.25rem; flex-wrap: wrap;}
+        .single-game-main-title { font-size: 1.8em; font-weight: 700; color: var(--text-color); margin: 0; }
+        .single-game-my-rating { font-size: 1.1em; }
+        .single-game-my-rating-placeholder { font-size: 0.9em; color: var(--text-muted); font-style: italic; }
+        .single-game-series { font-size: 1em; color: var(--accent-color-game); font-weight: 500; margin-top: -0.25rem; margin-bottom: 0.5rem; }
+        .single-game-plot { font-size: 0.95em; color: var(--text-muted); line-height: 1.6; text-align: justify; margin-bottom: 1.5rem; }
+        .single-game-additional-info { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 0.5rem 1.5rem; margin-bottom: 1.5rem; font-size: 0.9em; }
+        .single-game-additional-info div strong { color: var(--text-color); }
+        .single-game-footer { display: flex; justify-content: space-between; align-items: center; width: 100%; margin-top: auto; padding-top: 1rem; border-top: 1px solid #3a3a3a;}
+        .single-igdb-link { background-color: var(--accent-color-game) !important; color: #FFFFFF !important; text-decoration: none !important; padding: 8px 15px !important; border-radius: 6px !important; font-weight: 600 !important; height: auto !important; min-width: auto !important;}
+        .single-igdb-link:hover { filter: brightness(0.9); }
+    `;
+    let styleEl = dv.container.querySelector('#dashboard-styles');
+    if (!styleEl) { styleEl = createElement("style", { attr: { id: 'dashboard-styles' } }); dv.container.appendChild(styleEl); }
+    styleEl.textContent = cssStyles;
+
+    const controlsContainer = createElement("div", { cls: "dataview-controls" });
+    const leftControls = controlsContainer.createEl("div", { cls: "left-controls" });
+    const rightControls = controlsContainer.createEl("div", { cls: "right-controls" });
+    const icons = { sort_alpha: `<svg width='16' viewBox='0 0 24 24' stroke='currentColor' stroke-width='2' fill='none'><path d='M3 7h18M3 12h18M3 17h18'/></svg>`, sort_year: `<svg width='16' viewBox='0 0 24 24' stroke='currentColor' stroke-width='2' fill='none'><rect x='3' y='4' width='18' height='18' rx='2'/><line x1='16' y1='2' x2='16' y2='6'/><line x1='8' y1='2' x2='8' y2='6'/><line x1='3' y1='10' x2='21' y2='10'/></svg>`, sort_rating: `<svg class="icon-filled" width='16' viewBox='0 0 24 24' stroke='currentColor' stroke-width='1.5'><polygon points='12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2'/></polygon></svg>`, sort_asc: `↑`, sort_desc: `↓`, status_all: statusMap.default.i, status_played: statusMap.played.i, status_playing: statusMap.playing.i, status_dropped: statusMap.dropped.i, status_sandbox: statusMap.sandbox.i, view_grid: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>`, view_compact: `<svg class="icon-filled" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>`, view_list: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>`, favorite: `<svg class="icon-filled" width='16' viewBox='0 0 24 24'><path d='M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l8.78-8.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z'/></svg>`, random: `<svg class="icon-filled" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96" stroke-width="0"/><line x1="12" y1="22.08" x2="12" y2="12" stroke-width="0"/></svg>`, reset: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path><path d="M21 12A9 9 0 0 0 3 12"></path></svg>`, add_game: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>`};
+
+    const sortButtons = [{ f: "name", l: "Nome", i: icons.sort_alpha }, { f: "year", l: "Anno", i: icons.sort_year }, { f: "rating", l: "Voto", i: icons.sort_rating }];
+    const statusButtons = [ {t: "Tutti", k: "all"}, {t: "Completato", k: "played"}, {t: "Giocando", k: "playing"}, {t: "Abbandonato", k: "dropped"}, {t: "Sandbox", k: "sandbox"}, {t: "Non Iniziato", k: "default"}];
+    const viewButtons = { grid: { l: 'Griglia', i: icons.view_grid }, compact: { l: 'Compatta', i: icons.view_compact }, list: { l: 'Lista', i: icons.view_list } };
+
+    leftControls.createEl("span", { text: "Ordina:", cls: "control-label" });
+    const sortGroup = leftControls.createEl("div", { cls: "btn-group" });
+    sortButtons.forEach(btn => {
+        const button = sortGroup.createEl("button", { cls: `ctrl-btn sort-${btn.f}-btn ${sortField === btn.f ? 'active' : ''}`, attr: { "aria-label": `Ordina per ${btn.l}` } });
+        button.innerHTML = btn.i;
+        button.onclick = () => { if (sortField !== btn.f) { sortField = btn.f; sortOrder = 'asc'; } isShowingSingleGameView = false; activeSingleGame = null; applyAndRender(); };
+    });
+    const orderBtn = sortGroup.createEl("button", { cls: "ctrl-btn", attr: { "aria-label": "Inverti ordine" } });
+    orderBtn.innerHTML = sortOrder === "asc" ? icons.sort_asc : icons.sort_desc;
+    orderBtn.onclick = () => { sortOrder = sortOrder === 'asc' ? 'desc' : 'asc'; orderBtn.innerHTML = sortOrder === "asc" ? icons.sort_asc : icons.sort_desc; isShowingSingleGameView = false; activeSingleGame = null; applyAndRender(); };
+
+    leftControls.createEl("span", { text: "Stato:", cls: "control-label" });
+    const filterGroup = leftControls.createEl("div", { cls: "btn-group" });
+    statusButtons.forEach(status => {
+        const iconKey = Object.keys(statusMap).find(k => k === status.k) || 'all';
+        const button = filterGroup.createEl("button", { cls: `ctrl-btn status-${iconKey}-btn ${filterStatus === status.t ? 'active' : ''}`, attr: { "aria-label": `Filtra per ${status.t}` } });
+        button.innerHTML = icons[`status_${iconKey}`] || statusMap.default.i;
+        button.onclick = () => { filterStatus = status.t; isShowingSingleGameView = false; activeSingleGame = null; applyAndRender(); };
+    });
+
+    leftControls.createEl("span", { text: "Visualizza:", cls: "control-label" });
+    const viewModesGroup = leftControls.createEl("div", { cls: "btn-group" });
+    Object.keys(viewButtons).forEach(mode => { const button = viewModesGroup.createEl("button", { cls: `ctrl-btn view-${mode}-btn ${viewMode === mode ? 'active' : ''}`, attr: { "aria-label": `Visualizzazione ${viewButtons[mode].l}` } }); button.innerHTML = viewButtons[mode].i; button.onclick = () => { viewMode = mode; isShowingSingleGameView = false; activeSingleGame = null; applyAndRender(); }; });
+
+    const searchWrapper = rightControls.createEl("div", { cls: "search-input-wrapper" });
+    const addGameBtn = searchWrapper.createEl("button", { cls: "ctrl-btn add-game-btn", attr: { "aria-label": "Aggiungi nuovo gioco" } });
+    addGameBtn.innerHTML = icons.add_game;
+    addGameBtn.onclick = () => { try { const quickAddApi = app.plugins.plugins.quickadd?.api; if (quickAddApi) { quickAddApi.executeChoice("add Game"); } else { new Notice("QuickAdd plugin non trovato o non abilitato."); } } catch (e) { console.error("Errore QuickAdd:", e); new Notice("Errore QuickAdd."); } };
+
+    const searchInput = searchWrapper.createEl("input", { attr: { type: "text", spellcheck: "false", placeholder: "Cerca...", value: searchTerm }, cls: "search-input" });
+    const suggester = searchWrapper.createEl("div", { cls: "search-suggester" });
+    searchInput.oninput = () => {
+        const value = searchInput.value.toLowerCase();
+        suggester.innerHTML = "";
+        if(value.length < 2) { suggester.style.display = 'none'; return; }
+        const suggestions = pages.map(p => p.file.name).filter(name => name.toLowerCase().includes(value)).filter((v, i, a) => a.indexOf(v) === i).slice(0, 10);
+        if(suggestions.length === 0) { suggester.style.display = 'none'; return; }
+        suggestions.forEach(s => {
+            const item = suggester.createEl('div', { cls: 'suggestion-item', text: s });
+            item.onclick = () => { searchInput.value = s; suggester.style.display = 'none'; searchTerm = s; applyAndRender(); };
+        });
+        suggester.style.display = 'block';
+    };
+    searchInput.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); searchTerm = searchInput.value; suggester.style.display = 'none'; applyAndRender(); } };
+
+    const favoriteBtn = searchWrapper.createEl("button", { cls: `ctrl-btn favorite-btn ${filterFavorite ? 'active' : ''}`, attr: { "aria-label": "Filtra solo preferiti" } });
+    favoriteBtn.innerHTML = icons.favorite;
+    favoriteBtn.onclick = () => { filterFavorite = !filterFavorite; isShowingSingleGameView = false; activeSingleGame = null; applyAndRender(); };
+
+    const randomBtn = searchWrapper.createEl("button", { cls: "ctrl-btn random-btn", attr: { "aria-label": "Mostra gioco casuale" } });
+    randomBtn.innerHTML = icons.random;
+    randomBtn.onclick = () => {
+        const randomPool = pages.filter(p => p.sandbox || (!p.played && !p.playing && !p.dropped));
+        if (randomPool.length > 0) {
+            filterStatus = "Tutti";
+            filterFavorite = false;
+            searchTerm = "";
+            const randomIndex = Math.floor(Math.random() * randomPool.length);
+            activeSingleGame = randomPool[randomIndex];
+            isShowingSingleGameView = true;
+            applyAndRender();
+        } else { new Notice("Nessun gioco 'Non Iniziato' o 'Sandbox' trovato."); }
+    };
+
+    const resetBtn = searchWrapper.createEl("button", { cls: "ctrl-btn reset-btn", attr: { "aria-label": "Resetta filtri e ordinamento" } });
+    resetBtn.innerHTML = icons.reset;
+    resetBtn.onclick = () => { sortField = "name"; sortOrder = "asc"; filterStatus = "Tutti"; filterFavorite = false; searchTerm = ""; searchInput.value = ""; isShowingSingleGameView = false; activeSingleGame = null; applyAndRender(); };
+
+    dv.container.appendChild(controlsContainer);
+}
+
+function applyAndRender(triggeredBySearch = false) {
+    let activeElement = document.activeElement;
+    let isSearchActive = activeElement && activeElement.classList.contains('search-input');
+    let searchCursorPosition = isSearchActive ? activeElement.selectionStart : 0;
+    dv.container.innerHTML = "";
+    if (!triggeredBySearch && isShowingSingleGameView && activeSingleGame) { renderControls(); renderSingleGameDetailView(activeSingleGame, dv.container); saveSettings(); return; }
+    renderControls();
+    if (isSearchActive) { const newSearchInput = dv.container.querySelector('.search-input'); if (newSearchInput) { newSearchInput.focus(); newSearchInput.selectionStart = newSearchInput.selectionEnd = searchCursorPosition; } }
+
+    let filteredPages = pages.filter(p => p.file);
+    if (filterStatus !== "Tutti") {
+        const statusEntry = Object.values(statusMap).find(s => s.t === filterStatus);
+        if (statusEntry.key === 'sandbox') { filteredPages = filteredPages.filter(p => p.sandbox); }
+        else if (statusEntry && statusEntry.key !== 'default') { filteredPages = filteredPages.filter(p => p[statusEntry.key]); }
+        else if (filterStatus === statusMap.default.t) { filteredPages = filteredPages.filter(p => !p.played && !p.playing && !p.dropped); }
+    }
+    if (filterFavorite) filteredPages = filteredPages.filter(p => p.favorite);
+    const finalSearchTerm = searchTerm.toLowerCase();
+    if (finalSearchTerm) {
+        filteredPages = filteredPages.filter(p =>
+            p.file.name.toLowerCase().includes(finalSearchTerm) ||
+            p.plot?.toLowerCase().includes(finalSearchTerm) ||
+            (Array.isArray(p.genres) && p.genres.some(g => typeof g === 'string' && g.toLowerCase().includes(finalSearchTerm))) ||
+            (Array.isArray(p.platforms) && p.platforms.some(pl => typeof pl === 'string' && pl.toLowerCase().includes(finalSearchTerm))) ||
+            (Array.isArray(p.developers) && p.developers.some(d => typeof d === 'string' && d.toLowerCase().includes(finalSearchTerm))) ||
+            (Array.isArray(p.publishers) && p.publishers.some(pu => typeof pu === 'string' && pu.toLowerCase().includes(finalSearchTerm)))
+        );
+    }
+    if (sortField === "rating") { filteredPages = filteredPages.filter(p => getRatingValue(p.my_rating) > 0); }
+
+    currentPages = [...filteredPages].sort((a, b) => {
+        const order = sortOrder === 'asc' ? 1 : -1;
+        if (sortField === "name") return a.file.name.localeCompare(b.file.name, undefined, { numeric: true }) * order;
+        if (sortField === "year") return ((a.year || 0) - (b.year || 0)) * order;
+        if (sortField === "rating") return (getRatingValue(a.my_rating) - getRatingValue(b.my_rating)) * order;
+        return 0;
+    });
+    createElement("div", { cls: "search-count", text: `${currentPages.length} giochi trovati` });
+    renderGameCardsContainer(currentPages);
+    saveSettings();
+}
+
+function renderGameCardsContainer(dataToRender) {
+    const container = createElement("div", { cls: `games-view ${viewMode}` });
+    renderCards(container, dataToRender);
+    dv.container.appendChild(container);
+}
+
+function renderSingleGameDetailView(p, targetContainer) {
+    const detailWrapper = targetContainer.createEl("div", { cls: "single-game-detail-wrapper" });
+    const viewContainer = detailWrapper.createEl("div", { cls: "single-game-detail-view" });
+    const headerBar = viewContainer.createEl("div", { cls: "single-game-header-bar" });
+    headerBar.createEl("span", { cls: "single-game-header-title", text: "Dettaglio Gioco" });
+    const homeButton = headerBar.createEl("button", { cls: "ctrl-btn single-game-home-btn", text: "Libreria" });
+    homeButton.onclick = () => { isShowingSingleGameView = false; activeSingleGame = null; applyAndRender(); };
+    const contentWrapper = viewContainer.createEl("div", { cls: "single-game-content-wrapper" });
+    const img = contentWrapper.createEl("img", { cls: "single-game-image", attr: { src: getImageUrl(p.coverUrl) } });
+    img.onclick = (e) => { e.preventDefault(); img.style.opacity = '0'; img.style.transform = 'scale(0.95)'; createParticleVortex(img, () => { app.workspace.openLinkText(p.file.path, "", false); }); };
+    const details = contentWrapper.createEl("div", { cls: "single-game-details" });
+    const titleContainer = details.createEl("div", { cls: "single-game-title-container" });
+    titleContainer.createEl("h2", { cls: "single-game-main-title", text: p.file.name });
+    const myRatingStarsHtml = renderMyStars(p.my_rating);
+    if (myRatingStarsHtml) { titleContainer.createEl("span", { cls: "single-game-my-rating" }).innerHTML = myRatingStarsHtml; }
+    else { titleContainer.createEl("span", { cls: "single-game-my-rating-placeholder", text: "N/D" }); }
+    if (p.gameSeries) { details.createEl("div", { cls: "single-game-series", text: `Serie: ${p.gameSeries}` }); }
+    details.createEl("div", { cls: "single-game-plot", text: p.plot || "Nessuna descrizione." });
+    const additionalInfoContainer = viewContainer.createEl("div", { cls: "single-game-additional-info" });
+    additionalInfoContainer.createEl("div").innerHTML = `<strong>Anno:</strong> ${p.year || 'N/D'}`;
+    additionalInfoContainer.createEl("div").innerHTML = `<strong>Critica IGDB:</strong> ${p.rating || 'N/D'}`;
+    additionalInfoContainer.createEl("div").innerHTML = `<strong>Metacritic:</strong> ${p.metacritic || 'N/D'}`;
+    additionalInfoContainer.createEl("div").innerHTML = `<strong>Generi:</strong> ${formatArray(p.genres)}`;
+    additionalInfoContainer.createEl("div").innerHTML = `<strong>Piattaforme:</strong> ${formatArray(p.platforms)}`;
+    additionalInfoContainer.createEl("div").innerHTML = `<strong>Sviluppatori:</strong> ${formatArray(p.developers)}`;
+    additionalInfoContainer.createEl("div").innerHTML = `<strong>Editori:</strong> ${formatArray(p.publishers)}`;
+    const footer = viewContainer.createEl("div", { cls: "single-game-footer" });
+    
+    const mainStatusInfo = getStatusInfo(p); 
+    let statusText = "";
+    if (mainStatusInfo.key !== 'default' || p.sandbox) {
+        if (mainStatusInfo.key !== 'default') {
+            statusText += `<span class="status-button ${mainStatusInfo.c}">${mainStatusInfo.i} ${mainStatusInfo.t}</span>`;
+        }
+        if(p.sandbox) { 
+            statusText += `<span class="status-button sandbox">${statusMap.sandbox.i} ${statusMap.sandbox.t}</span>`; 
+        }
+    } else { 
+        statusText = `<span class="status-button ${statusMap.default.c}">${statusMap.default.i} ${statusMap.default.t}</span>`;
+    }
+    footer.innerHTML = statusText;
+
+    if (p.url) { footer.createEl("a", { href: p.url, text: "Vedi su IGDB", cls: "ctrl-btn single-igdb-link", attr: { target: "_blank" } }); }
+}
+
+const globalMenuHandler = (e) => {
+    if (isCursorOverMenu(e)) { if (e.type === 'contextmenu') e.preventDefault(); return; }
+    const searchSuggester = document.querySelector('.search-suggester');
+    if (searchSuggester && !searchSuggester.contains(e.target) && searchSuggester.style.display !== 'none') {
+        searchSuggester.style.display = 'none';
+    }
+    closeAllContextMenus();
+    if (e.key === 'Escape') {
+        if (searchSuggester) searchSuggester.style.display = 'none';
+        closeAllContextMenus();
+    }
+};
+
+try {
+    loadSettings();
+    initializeTooltip();
+    window.removeEventListener('click', globalMenuHandler, true);
+    window.removeEventListener('keydown', globalMenuHandler, true);
+    window.removeEventListener('contextmenu', globalMenuHandler, true);
+    window.addEventListener('click', globalMenuHandler, true);
+    window.addEventListener('keydown', globalMenuHandler, true);
+    window.addEventListener('contextmenu', globalMenuHandler, true);
+    applyAndRender();
+} catch (e) {
+    console.error("Errore inizializzazione DataviewJS:", e);
+    dv.paragraph("Si è verificato un errore durante il caricamento. Controlla la console (Ctrl+Shift+I).");
+}
+```
